@@ -11,9 +11,6 @@ import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioManager
-import android.media.MediaPlayer
-import android.media.ToneGenerator
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -25,15 +22,13 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.TextView
-import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.sin
 import kotlin.random.Random
 
 class PetService : Service() {
 
-    // ★ 台词改这里
-    private val lines = arrayOf(
+    // ★ 点击时说的话
+    private val clickLines = arrayOf(
         "干嘛呀～",
         "主人今天也辛苦啦",
         "摸头要收费的哦",
@@ -41,54 +36,68 @@ class PetService : Service() {
         "你在看什么呀？",
         "嘿嘿～",
         "别戳啦，痒！",
-        "要一起玩吗？",
-        "有点想回海里了…",
-        "今天也要加油哦！"
+        "要一起玩吗？"
     )
 
-    // ★ 桌宠大小改这里（单位dp）
+    // ★ 被摸头时说的话
+    private val patLines = arrayOf(
+        "唔…",
+        "嘿嘿～",
+        "别摸啦～",
+        "舒服…",
+        "再摸一下下…",
+        "啊？"
+    )
+
+    // ★ 桌宠大小（单位dp，想改大改小改这个数）
     private val petDp = 150
     private val boxDp = (petDp * 1.5f).toInt()
     private val padDp = (petDp * 0.25f).toInt()
+
+    // ★ 三组动画各自的播放速度（毫秒/帧，数字越小动得越快）
+    private val idleMs = 260L
+    private val clickMs = 130L
+    private val patMs = 170L
+
+    // ★ 按住多久算"摸头"（毫秒）
+    private val holdMs = 600L
+
+    // 状态：0=待机  1=被点击  2=被摸头
+    private var state = 0
+    private var stateIndex = 0
 
     private lateinit var wm: WindowManager
     private var pet: ImageView? = null
     private var lp: WindowManager.LayoutParams? = null
     private var bubble: TextView? = null
     private var hideTask: Runnable? = null
-    private var tone: ToneGenerator? = null
 
     private val handler = Handler(Looper.getMainLooper())
-    private val frames = ArrayList<Int>()
-    private val sounds = ArrayList<Int>()
-    private var frameIndex = 0
 
-    private var popAt = 0L
-    private var idleAt = 0L
-    private var idleKind = 0
-    private var nextIdle = 0L
-    private var tilt = 0f
-    private var touching = false
-    private var lastX = 0f
+    private val idleFrames = ArrayList<Int>()
+    private val clickFrames = ArrayList<Int>()
+    private val patFrames = ArrayList<Int>()
 
     private var downX = 0f
     private var downY = 0f
     private var startX = 0
     private var startY = 0
     private var moved = false
+    private var pressed = false
+    private var holdFired = false
     private var snapAnim: ValueAnimator? = null
 
-    private val ticker = object : Runnable {
-        override fun run() {
-            draw()
-            handler.postDelayed(this, 33)
+    private val holdTask = Runnable {
+        if (pressed && !moved) {
+            holdFired = true
+            doPat()
         }
     }
 
     private val frameTicker = object : Runnable {
         override fun run() {
-            nextFrame()
-            handler.postDelayed(this, 220)
+            step()
+            handler.postDelayed(this, speedOf(state))
         }
     }
 
@@ -98,7 +107,6 @@ class PetService : Service() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         loadFrames()
-        loadSounds()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -122,18 +130,79 @@ class PetService : Service() {
         handler.removeCallbacksAndMessages(null)
         snapAnim?.cancel()
         hideBubble()
-        val g = tone
-        if (g != null) {
-            runCatching { g.release() }
-        }
-        tone = null
         val v = pet
         if (v != null) {
             runCatching { wm.removeView(v) }
         }
         pet = null
         super.onDestroy()
-    }    @Suppress("DEPRECATION")
+    }
+
+    // ===== 第①段结束 =====    // ===== 第②段开始 =====
+
+    private fun speedOf(s: Int): Long {
+        if (s == 1) {
+            return clickMs
+        }
+        if (s == 2) {
+            return patMs
+        }
+        return idleMs
+    }
+
+    private fun framesOf(s: Int): ArrayList<Int> {
+        if (s == 1) {
+            return clickFrames
+        }
+        if (s == 2) {
+            return patFrames
+        }
+        return idleFrames
+    }
+
+    private fun hasAnim(s: Int): Boolean {
+        return framesOf(s).isNotEmpty()
+    }
+
+    private fun setState(s: Int) {
+        state = s
+        stateIndex = 0
+        showFrame()
+    }
+
+    private fun showFrame() {
+        val list = framesOf(state)
+        if (list.isEmpty()) {
+            return
+        }
+        var i = stateIndex
+        if (i >= list.size) {
+            i = 0
+        }
+        val v = pet
+        if (v != null) {
+            v.setImageResource(list[i])
+        }
+    }
+
+    private fun step() {
+        val list = framesOf(state)
+        if (list.size <= 1) {
+            return
+        }
+        stateIndex = stateIndex + 1
+        if (stateIndex >= list.size) {
+            if (state == 0) {
+                stateIndex = 0
+            } else {
+                setState(0)
+                return
+            }
+        }
+        showFrame()
+    }
+
+    @Suppress("DEPRECATION")
     private fun overlayType(): Int {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             return WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -150,7 +219,6 @@ class PetService : Service() {
 
     private fun addPet() {
         val iv = ImageView(this)
-        iv.setImageResource(frames[0])
         iv.scaleType = ImageView.ScaleType.FIT_CENTER
         iv.setPadding(dp(padDp), dp(padDp), dp(padDp), dp(padDp))
         iv.setBackgroundColor(Color.TRANSPARENT)
@@ -167,66 +235,10 @@ class PetService : Service() {
         wm.addView(iv, p)
         pet = iv
         lp = p
-        handler.post(ticker)
+        state = 0
+        stateIndex = 0
+        showFrame()
         handler.post(frameTicker)
-    }
-
-    private fun draw() {
-        val v = pet
-        if (v == null) {
-            return
-        }
-        val now = System.currentTimeMillis()
-        val t = now / 1000.0
-
-        var k = 1.0 + 0.022 * sin(t * 2.4)
-
-        if (popAt > 0L) {
-            val e = (now - popAt) / 320.0
-            if (e >= 1.0) {
-                popAt = 0L
-            } else {
-                k *= 1.0 + 0.28 * sin(e * PI)
-            }
-        }
-
-        var rot = 0f
-        var hop = 0f
-        if (idleAt > 0L) {
-            val e = (now - idleAt) / 560.0
-            if (e >= 1.0) {
-                idleAt = 0L
-            } else if (idleKind == 0) {
-                hop = (-dp(12) * sin(e * PI)).toFloat()
-            } else if (idleKind == 1) {
-                rot = (8.0 * sin(e * PI * 2)).toFloat()
-            } else {
-                k *= 1.0 + 0.09 * sin(e * PI)
-            }
-        }
-
-        if (!touching) {
-            tilt *= 0.86f
-        }
-
-        var bob = 0f
-        if (!touching) {
-            bob = (sin(t * 1.9) * dp(4)).toFloat()
-        }
-
-        v.scaleX = k.toFloat()
-        v.scaleY = k.toFloat()
-        v.rotation = tilt + rot
-        v.translationY = bob + hop
-
-        if (nextIdle == 0L) {
-            nextIdle = now + 4000L
-        }
-        if (now > nextIdle && idleAt == 0L && popAt == 0L && !touching) {
-            idleKind = Random.nextInt(3)
-            idleAt = now
-            nextIdle = now + Random.nextLong(5000L, 13000L)
-        }
     }
 
     private fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -242,12 +254,13 @@ class PetService : Service() {
                 }
                 downX = e.rawX
                 downY = e.rawY
-                lastX = e.rawX
                 startX = p.x
                 startY = p.y
                 moved = false
-                touching = true
+                pressed = true
+                holdFired = false
                 hideBubble()
+                handler.postDelayed(holdTask, holdMs)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -255,28 +268,25 @@ class PetService : Service() {
                 val dy = e.rawY - downY
                 if (abs(dx) > dp(10) || abs(dy) > dp(10)) {
                     moved = true
+                    handler.removeCallbacks(holdTask)
                 }
                 if (moved) {
                     p.x = (startX + dx).toInt()
                     p.y = (startY + dy).toInt()
                     wm.updateViewLayout(v, p)
-                    tilt = tilt * 0.55f + (e.rawX - lastX) * 1.6f
-                    if (tilt > 15f) {
-                        tilt = 15f
-                    }
-                    if (tilt < -15f) {
-                        tilt = -15f
-                    }
                 }
-                lastX = e.rawX
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                touching = false
+                pressed = false
+                handler.removeCallbacks(holdTask)
+                if (holdFired) {
+                    return true
+                }
                 if (moved) {
                     snapEdge()
                 } else {
-                    tap()
+                    doClick()
                 }
                 return true
             }
@@ -309,11 +319,20 @@ class PetService : Service() {
         snapAnim = a
     }
 
-    private fun tap() {
-        popAt = System.currentTimeMillis()
-        nextFrame()
-        playSound()
-        showBubble(lines[Random.nextInt(lines.size)])
+    private fun doClick() {
+        showBubble(clickLines[Random.nextInt(clickLines.size)])
+        if (!hasAnim(1)) {
+            return
+        }
+        setState(1)
+    }
+
+    private fun doPat() {
+        showBubble(patLines[Random.nextInt(patLines.size)])
+        if (!hasAnim(2)) {
+            return
+        }
+        setState(2)
     }
 
     private fun showBubble(text: String) {
@@ -334,7 +353,9 @@ class PetService : Service() {
         val p = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            overlayType(), baseFlags(), PixelFormat.TRANSLUCENT
+            overlayType(),
+            baseFlags(),
+            PixelFormat.TRANSLUCENT
         )
         p.gravity = Gravity.TOP or Gravity.START
 
@@ -393,84 +414,63 @@ class PetService : Service() {
     }
 
     private fun loadFrames() {
-        frames.clear()
-        var i = 0
-        while (i < 240) {
-            val id = resources.getIdentifier("pet_" + i, "drawable", packageName)
-            if (id == 0) {
-                break
-            }
-            frames.add(id)
-            i++
+        loadDrawables("idle_", idleFrames)
+        loadDrawables("click_", clickFrames)
+        loadDrawables("pat_", patFrames)
+
+        if (idleFrames.isEmpty()) {
+            loadRetouch(idleFrames)
         }
-        if (frames.isEmpty()) {
+        if (idleFrames.isEmpty()) {
+            loadDrawables("pet_", idleFrames)
+        }
+        if (idleFrames.isEmpty()) {
             val s = resources.getIdentifier("pet", "drawable", packageName)
             if (s != 0) {
-                frames.add(s)
+                idleFrames.add(s)
             } else {
-                frames.add(R.drawable.ic_launcher)
+                idleFrames.add(R.drawable.ic_launcher)
             }
         }
     }
 
-    private fun nextFrame() {
-        if (frames.size <= 1) {
-            return
-        }
-        frameIndex = (frameIndex + 1) % frames.size
-        val v = pet
-        if (v != null) {
-            v.setImageResource(frames[frameIndex])
-        }
-    }
-
-    private fun loadSounds() {
-        sounds.clear()
+    private fun loadDrawables(prefix: String, into: ArrayList<Int>) {
+        into.clear()
         var i = 0
-        while (i < 30) {
-            val id = resources.getIdentifier("tap_" + i, "raw", packageName)
+        while (i < 60) {
+            val id = resources.getIdentifier(prefix + i, "drawable", packageName)
             if (id == 0) {
                 break
             }
-            sounds.add(id)
+            into.add(id)
             i++
         }
     }
 
-    private fun playSound() {
-        // ① 如果你以后上传过 tap_0.mp3 这类音频，优先播放它们
-        if (sounds.isNotEmpty()) {
-            val id = sounds[Random.nextInt(sounds.size)]
-            val played = runCatching {
-                val mp = MediaPlayer.create(this, id)
-                if (mp != null) {
-                    mp.setOnCompletionListener { it.release() }
-                    mp.start()
-                    true
-                } else {
-                    false
-                }
-            }.getOrDefault(false)
-            if (played) {
-                return
-            }
-        }
-        // ② 没有音频文件时，用手机自带的提示音（零素材）
+    private fun loadRetouch(into: ArrayList<Int>) {
+        val names = ArrayList<String>()
         try {
-            var g = tone
-            if (g == null) {
-                g = ToneGenerator(AudioManager.STREAM_MUSIC, 70)
-                tone = g
+            val cls = R.drawable::class.java
+            val fs = cls.fields
+            var i = 0
+            while (i < fs.size) {
+                val n = fs[i].name
+                if (n.startsWith("retouch_")) {
+                    names.add(n)
+                }
+                i++
             }
-            val pool = intArrayOf(
-                ToneGenerator.TONE_PROP_ACK,
-                ToneGenerator.TONE_PROP_BEEP,
-                ToneGenerator.TONE_PROP_BEEP2,
-                ToneGenerator.TONE_PROP_PROMPT
-            )
-            g.startTone(pool[Random.nextInt(pool.size)], 120)
         } catch (e: Exception) {
-            // 少数手机不支持系统提示音，忽略即可
+            names.clear()
+        }
+        names.sort()
+        var k = 0
+        while (k < names.size) {
+            val id = resources.getIdentifier(names[k], "drawable", packageName)
+            if (id != 0) {
+                into.add(id)
+            }
+            k++
         }
     }
 
