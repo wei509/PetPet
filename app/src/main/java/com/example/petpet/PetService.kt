@@ -11,7 +11,9 @@ import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.media.MediaPlayer
+import android.media.ToneGenerator
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -54,6 +56,7 @@ class PetService : Service() {
     private var lp: WindowManager.LayoutParams? = null
     private var bubble: TextView? = null
     private var hideTask: Runnable? = null
+    private var tone: ToneGenerator? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private val frames = ArrayList<Int>()
@@ -119,6 +122,11 @@ class PetService : Service() {
         handler.removeCallbacksAndMessages(null)
         snapAnim?.cancel()
         hideBubble()
+        val g = tone
+        if (g != null) {
+            runCatching { g.release() }
+        }
+        tone = null
         val v = pet
         if (v != null) {
             runCatching { wm.removeView(v) }
@@ -430,16 +438,39 @@ class PetService : Service() {
     }
 
     private fun playSound() {
-        if (sounds.isEmpty()) {
-            return
-        }
-        val id = sounds[Random.nextInt(sounds.size)]
-        runCatching {
-            val mp = MediaPlayer.create(this, id)
-            if (mp != null) {
-                mp.setOnCompletionListener { it.release() }
-                mp.start()
+        // ① 如果你以后上传过 tap_0.mp3 这类音频，优先播放它们
+        if (sounds.isNotEmpty()) {
+            val id = sounds[Random.nextInt(sounds.size)]
+            val played = runCatching {
+                val mp = MediaPlayer.create(this, id)
+                if (mp != null) {
+                    mp.setOnCompletionListener { it.release() }
+                    mp.start()
+                    true
+                } else {
+                    false
+                }
+            }.getOrDefault(false)
+            if (played) {
+                return
             }
+        }
+        // ② 没有音频文件时，用手机自带的提示音（零素材）
+        try {
+            var g = tone
+            if (g == null) {
+                g = ToneGenerator(AudioManager.STREAM_MUSIC, 70)
+                tone = g
+            }
+            val pool = intArrayOf(
+                ToneGenerator.TONE_PROP_ACK,
+                ToneGenerator.TONE_PROP_BEEP,
+                ToneGenerator.TONE_PROP_BEEP2,
+                ToneGenerator.TONE_PROP_PROMPT
+            )
+            g.startTone(pool[Random.nextInt(pool.size)], 120)
+        } catch (e: Exception) {
+            // 少数手机不支持系统提示音，忽略即可
         }
     }
 
