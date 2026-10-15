@@ -54,23 +54,37 @@ class PetService : Service() {
         "啊？"
     )
 
+    // ★ 被投喂（双击）时说的话
+    private val eatLines = arrayOf(
+        "饭！",
+        "好耶～",
+        "谢谢主人！",
+        "唔姆唔姆…",
+        "是白米饭！",
+        "再来一碗！"
+    )
+
     // ★ 桌宠大小（单位dp，想改大改小改这个数）
     private val petDp = 150
     private val boxDp = (petDp * 1.5f).toInt()
     private val padDp = (petDp * 0.25f).toInt()
 
-    // ★ 序列帧切换速度（毫秒/帧）
+    // ★ 各组动画的播放速度（毫秒/帧）
     private val idleMs = 300L
     private val clickMs = 130L
     private val patMs = 170L
+    private val eatMs = 260L
 
     // ★ 按住多久算"摸头"（毫秒）
     private val holdMs = 600L
 
+    // ★ 双击间隔（毫秒），小于这个时间算双击
+    private val doubleMs = 320L
+
     // ★ 音效音量（0.0 ~ 1.0）
     private val sndVolume = 0.35f
 
-    // 状态：0=待机  1=被点击  2=被摸头
+    // 状态：0=待机  1=被点击  2=被摸头  3=吃饭
     private var state = 0
     private var stateIndex = 0
 
@@ -85,10 +99,12 @@ class PetService : Service() {
     private val idleDraws = ArrayList<Drawable>()
     private val clickDraws = ArrayList<Drawable>()
     private val patDraws = ArrayList<Drawable>()
+    private val eatDraws = ArrayList<Drawable>()
 
     private var soundPool: SoundPool? = null
     private val clickSounds = ArrayList<Int>()
     private val patSounds = ArrayList<Int>()
+    private val eatSounds = ArrayList<Int>()
 
     private var popAt = 0L
     private var patAt = 0L
@@ -101,6 +117,10 @@ class PetService : Service() {
     private var pressed = false
     private var holdFired = false
     private var snapAnim: ValueAnimator? = null
+
+    private var lastTapAt = 0L
+    private var lastTapX = 0f
+    private var lastTapY = 0f
 
     private val holdTask = Runnable {
         if (pressed && !moved) {
@@ -176,6 +196,9 @@ class PetService : Service() {
         if (s == 2) {
             return patMs
         }
+        if (s == 3) {
+            return eatMs
+        }
         return idleMs
     }
 
@@ -185,6 +208,9 @@ class PetService : Service() {
         }
         if (s == 2) {
             return patDraws
+        }
+        if (s == 3) {
+            return eatDraws
         }
         return idleDraws
     }
@@ -357,7 +383,19 @@ class PetService : Service() {
                 }
                 if (moved) {
                     snapEdge()
+                    return true
+                }
+                val now = System.currentTimeMillis()
+                val gap = now - lastTapAt
+                val nearX = abs(e.rawX - lastTapX) < dp(60)
+                val nearY = abs(e.rawY - lastTapY) < dp(60)
+                if (lastTapAt != 0L && gap < doubleMs && nearX && nearY) {
+                    lastTapAt = 0L
+                    doEat()
                 } else {
+                    lastTapAt = now
+                    lastTapX = e.rawX
+                    lastTapY = e.rawY
                     doClick()
                 }
                 return true
@@ -406,6 +444,15 @@ class PetService : Service() {
         showBubble(patLines[Random.nextInt(patLines.size)])
         if (patDraws.isNotEmpty()) {
             setState(2)
+        }
+    }
+
+    private fun doEat() {
+        playSound(eatSounds)
+        popAt = System.currentTimeMillis()
+        showBubble(eatLines[Random.nextInt(eatLines.size)])
+        if (eatDraws.isNotEmpty()) {
+            setState(3)
         }
     }
 
@@ -491,6 +538,7 @@ class PetService : Service() {
         loadDrawables("idle_", idleDraws)
         loadDrawables("click_", clickDraws)
         loadDrawables("pat_", patDraws)
+        loadDrawables("eat_", eatDraws)
 
         if (idleDraws.isEmpty()) {
             loadRetouch(idleDraws)
@@ -572,6 +620,7 @@ class PetService : Service() {
     private fun loadSounds() {
         loadRaw("snd_click_", clickSounds)
         loadRaw("snd_pat_", patSounds)
+        loadRaw("snd_eat_", eatSounds)
         if (clickSounds.isEmpty()) {
             loadRaw("tap_", clickSounds)
         }
