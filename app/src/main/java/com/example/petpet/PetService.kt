@@ -12,6 +12,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -52,12 +53,12 @@ class PetService : Service() {
         "啊？"
     )
 
-    // ★ 桌宠大小（单位dp，想改大改小改这个数）
+    // ★ 桌宠大小（单位dp）
     private val petDp = 150
     private val boxDp = (petDp * 1.5f).toInt()
     private val padDp = (petDp * 0.25f).toInt()
 
-    // ★ 序列帧切换速度（毫秒/帧，数字越小切得越快）
+    // ★ 序列帧切换速度（毫秒/帧）
     private val idleMs = 300L
     private val clickMs = 130L
     private val patMs = 170L
@@ -80,6 +81,9 @@ class PetService : Service() {
     private val idleDraws = ArrayList<Drawable>()
     private val clickDraws = ArrayList<Drawable>()
     private val patDraws = ArrayList<Drawable>()
+
+    private val clickSounds = ArrayList<Int>()
+    private val patSounds = ArrayList<Int>()
 
     private var popAt = 0L
     private var patAt = 0L
@@ -120,6 +124,7 @@ class PetService : Service() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         loadAll()
+        loadSounds()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -376,6 +381,7 @@ class PetService : Service() {
     }
 
     private fun doClick() {
+        playSound(clickSounds)
         popAt = System.currentTimeMillis()
         showBubble(clickLines[Random.nextInt(clickLines.size)])
         if (clickDraws.isNotEmpty()) {
@@ -384,6 +390,7 @@ class PetService : Service() {
     }
 
     private fun doPat() {
+        playSound(patSounds)
         patAt = System.currentTimeMillis()
         showBubble(patLines[Random.nextInt(patLines.size)])
         if (patDraws.isNotEmpty()) {
@@ -538,6 +545,45 @@ class PetService : Service() {
             resources.getDrawable(id, null)
         } catch (e: Exception) {
             null
+        }
+    }
+
+    private fun loadSounds() {
+        loadRaw("snd_click_", clickSounds)
+        loadRaw("snd_pat_", patSounds)
+        if (clickSounds.isEmpty()) {
+            loadRaw("tap_", clickSounds)
+        }
+    }
+
+    private fun loadRaw(prefix: String, into: ArrayList<Int>) {
+        into.clear()
+        var i = 0
+        while (i < 30) {
+            val id = resources.getIdentifier(prefix + i, "raw", packageName)
+            if (id == 0) {
+                break
+            }
+            into.add(id)
+            i++
+        }
+    }
+
+    private fun playSound(list: ArrayList<Int>) {
+        var pool = list
+        if (pool.isEmpty()) {
+            pool = clickSounds
+        }
+        if (pool.isEmpty()) {
+            return
+        }
+        val id = pool[Random.nextInt(pool.size)]
+        runCatching {
+            val mp = MediaPlayer.create(this, id)
+            if (mp != null) {
+                mp.setOnCompletionListener { it.release() }
+                mp.start()
+            }
         }
     }
 
