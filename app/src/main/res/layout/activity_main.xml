@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="28dp"
+    android:background="#FFF6FAFF">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🐋 我的桌宠"
+        android:textSize="26sp"
+        android:textStyle="bold"
+        android:textColor="#FF1B3A5C" />
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:textSize="15sp"
+        android:gravity="center"
+        android:lineSpacingExtra="6dp"
+        android:textColor="#FF44586B"
+        android:text="" />
+
+    <Button
+        android:id="@+id/btnStart"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="36dp"
+        android:text="启动桌宠" />
+
+    <Button
+        android:id="@+id/btnStop"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="收起桌宠" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="28dp"
+        android:textSize="13sp"
+        android:textColor="#FF8A9AA8"
+        android:gravity="center"
+        android:text="小提示：如果TA几分钟后消失了\n去设置里打开「自启动」并把省电策略设为「无限制」" />
+</LinearLayout>
