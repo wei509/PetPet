@@ -18,8 +18,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Prepare Android SDK licenses
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "Using SDK: $SDK"
+          mkdir -p "$SDK/licenses" 2>/dev/null || true
+          printf '24333f8a63b6825ea9c5514f83c2829b004d1fee\n' > "$SDK/licenses/android-sdk-license" 2>/dev/null || true
+          printf '84831b9409646a918e30573bab4c9c91346d8abd\n' > "$SDK/licenses/android-sdk-preview-license" 2>/dev/null || true
+          echo "licenses ready"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
