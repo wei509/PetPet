@@ -12,7 +12,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.SoundPool
 import android.os.Build
 import android.os.Handler
@@ -559,16 +559,10 @@ class PetService : Service() {
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun createSoundPool() {
         try {
-            val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_GAME)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-            val sp = SoundPool.Builder()
-                .setMaxStreams(4)
-                .setAudioAttributes(attrs)
-                .build()
+            val sp = SoundPool(4, AudioManager.STREAM_MUSIC, 0)
             soundPool = sp
         } catch (e: Exception) {
             soundPool = null
@@ -639,7 +633,6 @@ class PetService : Service() {
         }
         return builder
             .setContentTitle("桌宠运行中")
-            .setContentDescription("桌宠")
             .setContentText("点这里回到设置页")
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(pi)
