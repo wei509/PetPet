@@ -12,7 +12,8 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.media.MediaPlayer
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -53,7 +54,7 @@ class PetService : Service() {
         "啊？"
     )
 
-    // ★ 桌宠大小（单位dp）
+    // ★ 桌宠大小（单位dp，想改大改小改这个数）
     private val petDp = 150
     private val boxDp = (petDp * 1.5f).toInt()
     private val padDp = (petDp * 0.25f).toInt()
@@ -65,6 +66,9 @@ class PetService : Service() {
 
     // ★ 按住多久算"摸头"（毫秒）
     private val holdMs = 600L
+
+    // ★ 音效音量（0.0 ~ 1.0）
+    private val sndVolume = 0.35f
 
     // 状态：0=待机  1=被点击  2=被摸头
     private var state = 0
@@ -82,6 +86,7 @@ class PetService : Service() {
     private val clickDraws = ArrayList<Drawable>()
     private val patDraws = ArrayList<Drawable>()
 
+    private var soundPool: SoundPool? = null
     private val clickSounds = ArrayList<Int>()
     private val patSounds = ArrayList<Int>()
 
@@ -123,6 +128,7 @@ class PetService : Service() {
     override fun onCreate() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        createSoundPool()
         loadAll()
         loadSounds()
     }
@@ -148,6 +154,11 @@ class PetService : Service() {
         handler.removeCallbacksAndMessages(null)
         snapAnim?.cancel()
         hideBubble()
+        val sp = soundPool
+        if (sp != null) {
+            runCatching { sp.release() }
+        }
+        soundPool = null
         val v = pet
         if (v != null) {
             runCatching { wm.removeView(v) }
@@ -548,6 +559,22 @@ class PetService : Service() {
         }
     }
 
+    private fun createSoundPool() {
+        try {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val sp = SoundPool.Builder()
+                .setMaxStreams(4)
+                .setAudioAttributes(attrs)
+                .build()
+            soundPool = sp
+        } catch (e: Exception) {
+            soundPool = null
+        }
+    }
+
     private fun loadSounds() {
         loadRaw("snd_click_", clickSounds)
         loadRaw("snd_pat_", patSounds)
@@ -558,13 +585,17 @@ class PetService : Service() {
 
     private fun loadRaw(prefix: String, into: ArrayList<Int>) {
         into.clear()
+        val sp = soundPool ?: return
         var i = 0
         while (i < 30) {
             val id = resources.getIdentifier(prefix + i, "raw", packageName)
             if (id == 0) {
                 break
             }
-            into.add(id)
+            val sid = sp.load(this, id, 1)
+            if (sid != 0) {
+                into.add(sid)
+            }
             i++
         }
     }
@@ -577,13 +608,10 @@ class PetService : Service() {
         if (pool.isEmpty()) {
             return
         }
-        val id = pool[Random.nextInt(pool.size)]
+        val sp = soundPool ?: return
+        val sid = pool[Random.nextInt(pool.size)]
         runCatching {
-            val mp = MediaPlayer.create(this, id)
-            if (mp != null) {
-                mp.setOnCompletionListener { it.release() }
-                mp.start()
-            }
+            sp.play(sid, sndVolume, sndVolume, 1, 0, 1f)
         }
     }
 
@@ -611,6 +639,7 @@ class PetService : Service() {
         }
         return builder
             .setContentTitle("桌宠运行中")
+            .setContentDescription("桌宠")
             .setContentText("点这里回到设置页")
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(pi)
