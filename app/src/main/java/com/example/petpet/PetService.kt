@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -22,7 +23,9 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.TextView
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.sin
 import kotlin.random.Random
 
 class PetService : Service() {
@@ -54,8 +57,8 @@ class PetService : Service() {
     private val boxDp = (petDp * 1.5f).toInt()
     private val padDp = (petDp * 0.25f).toInt()
 
-    // ★ 三组动画各自的播放速度（毫秒/帧，数字越小动得越快）
-    private val idleMs = 260L
+    // ★ 序列帧切换速度（毫秒/帧，数字越小切得越快）
+    private val idleMs = 300L
     private val clickMs = 130L
     private val patMs = 170L
 
@@ -74,9 +77,12 @@ class PetService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    private val idleFrames = ArrayList<Int>()
-    private val clickFrames = ArrayList<Int>()
-    private val patFrames = ArrayList<Int>()
+    private val idleDraws = ArrayList<Drawable>()
+    private val clickDraws = ArrayList<Drawable>()
+    private val patDraws = ArrayList<Drawable>()
+
+    private var popAt = 0L
+    private var patAt = 0L
 
     private var downX = 0f
     private var downY = 0f
@@ -101,12 +107,19 @@ class PetService : Service() {
         }
     }
 
+    private val animTicker = object : Runnable {
+        override fun run() {
+            draw()
+            handler.postDelayed(this, 40)
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        loadFrames()
+        loadAll()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -150,18 +163,14 @@ class PetService : Service() {
         return idleMs
     }
 
-    private fun framesOf(s: Int): ArrayList<Int> {
+    private fun drawsOf(s: Int): ArrayList<Drawable> {
         if (s == 1) {
-            return clickFrames
+            return clickDraws
         }
         if (s == 2) {
-            return patFrames
+            return patDraws
         }
-        return idleFrames
-    }
-
-    private fun hasAnim(s: Int): Boolean {
-        return framesOf(s).isNotEmpty()
+        return idleDraws
     }
 
     private fun setState(s: Int) {
@@ -171,7 +180,7 @@ class PetService : Service() {
     }
 
     private fun showFrame() {
-        val list = framesOf(state)
+        val list = drawsOf(state)
         if (list.isEmpty()) {
             return
         }
@@ -181,12 +190,12 @@ class PetService : Service() {
         }
         val v = pet
         if (v != null) {
-            v.setImageResource(list[i])
+            v.setImageDrawable(list[i])
         }
     }
 
     private fun step() {
-        val list = framesOf(state)
+        val list = drawsOf(state)
         if (list.size <= 1) {
             return
         }
@@ -200,6 +209,48 @@ class PetService : Service() {
             }
         }
         showFrame()
+    }
+
+    private fun draw() {
+        val v = pet
+        if (v == null) {
+            return
+        }
+        val now = System.currentTimeMillis()
+        val t = now / 1000.0
+
+        var sx = 1.0 + 0.018 * sin(t * 1.8)
+        var sy = sx
+        var ty = (sin(t * 1.5) * dp(3)).toFloat()
+        var rot = 0f
+
+        if (popAt > 0L) {
+            val e = (now - popAt) / 340.0
+            if (e >= 1.0) {
+                popAt = 0L
+            } else {
+                val k = 1.0 + 0.20 * sin(e * PI)
+                sx *= k
+                sy *= k
+                ty -= (dp(10) * sin(e * PI)).toFloat()
+            }
+        }
+
+        if (patAt > 0L) {
+            val e = (now - patAt) / 900.0
+            if (e >= 1.0) {
+                patAt = 0L
+            } else {
+                rot = (5.0 * sin(e * PI * 3)).toFloat()
+                sx *= 1.0 + 0.05 * sin(e * PI * 2)
+                sy *= 1.0 - 0.04 * sin(e * PI * 2)
+            }
+        }
+
+        v.scaleX = sx.toFloat()
+        v.scaleY = sy.toFloat()
+        v.translationY = ty
+        v.rotation = rot
     }
 
     @Suppress("DEPRECATION")
@@ -223,6 +274,11 @@ class PetService : Service() {
         iv.setPadding(dp(padDp), dp(padDp), dp(padDp), dp(padDp))
         iv.setBackgroundColor(Color.TRANSPARENT)
 
+        val first = drawsOf(0)
+        if (first.isNotEmpty()) {
+            iv.setImageDrawable(first[0])
+        }
+
         val p = WindowManager.LayoutParams(
             dp(boxDp), dp(boxDp), overlayType(), baseFlags(), PixelFormat.TRANSLUCENT
         )
@@ -237,8 +293,8 @@ class PetService : Service() {
         lp = p
         state = 0
         stateIndex = 0
-        showFrame()
         handler.post(frameTicker)
+        handler.post(animTicker)
     }
 
     private fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -320,19 +376,19 @@ class PetService : Service() {
     }
 
     private fun doClick() {
+        popAt = System.currentTimeMillis()
         showBubble(clickLines[Random.nextInt(clickLines.size)])
-        if (!hasAnim(1)) {
-            return
+        if (clickDraws.isNotEmpty()) {
+            setState(1)
         }
-        setState(1)
     }
 
     private fun doPat() {
+        patAt = System.currentTimeMillis()
         showBubble(patLines[Random.nextInt(patLines.size)])
-        if (!hasAnim(2)) {
-            return
+        if (patDraws.isNotEmpty()) {
+            setState(2)
         }
-        setState(2)
     }
 
     private fun showBubble(text: String) {
@@ -413,28 +469,26 @@ class PetService : Service() {
         bubble = null
     }
 
-    private fun loadFrames() {
-        loadDrawables("idle_", idleFrames)
-        loadDrawables("click_", clickFrames)
-        loadDrawables("pat_", patFrames)
+    private fun loadAll() {
+        loadDrawables("idle_", idleDraws)
+        loadDrawables("click_", clickDraws)
+        loadDrawables("pat_", patDraws)
 
-        if (idleFrames.isEmpty()) {
-            loadRetouch(idleFrames)
+        if (idleDraws.isEmpty()) {
+            loadRetouch(idleDraws)
         }
-        if (idleFrames.isEmpty()) {
-            loadDrawables("pet_", idleFrames)
+        if (idleDraws.isEmpty()) {
+            loadDrawables("pet_", idleDraws)
         }
-        if (idleFrames.isEmpty()) {
-            val s = resources.getIdentifier("pet", "drawable", packageName)
-            if (s != 0) {
-                idleFrames.add(s)
-            } else {
-                idleFrames.add(R.drawable.ic_launcher)
+        if (idleDraws.isEmpty()) {
+            val d = getDrawableSafely(R.drawable.ic_launcher)
+            if (d != null) {
+                idleDraws.add(d)
             }
         }
     }
 
-    private fun loadDrawables(prefix: String, into: ArrayList<Int>) {
+    private fun loadDrawables(prefix: String, into: ArrayList<Drawable>) {
         into.clear()
         var i = 0
         while (i < 60) {
@@ -442,16 +496,18 @@ class PetService : Service() {
             if (id == 0) {
                 break
             }
-            into.add(id)
+            val d = getDrawableSafely(id)
+            if (d != null) {
+                into.add(d)
+            }
             i++
         }
     }
 
-    private fun loadRetouch(into: ArrayList<Int>) {
+    private fun loadRetouch(into: ArrayList<Drawable>) {
         val names = ArrayList<String>()
         try {
-            val cls = R.drawable::class.java
-            val fs = cls.fields
+            val fs = R.drawable::class.java.fields
             var i = 0
             while (i < fs.size) {
                 val n = fs[i].name
@@ -468,9 +524,20 @@ class PetService : Service() {
         while (k < names.size) {
             val id = resources.getIdentifier(names[k], "drawable", packageName)
             if (id != 0) {
-                into.add(id)
+                val d = getDrawableSafely(id)
+                if (d != null) {
+                    into.add(d)
+                }
             }
             k++
+        }
+    }
+
+    private fun getDrawableSafely(id: Int): Drawable? {
+        return try {
+            resources.getDrawable(id, null)
+        } catch (e: Exception) {
+            null
         }
     }
 
