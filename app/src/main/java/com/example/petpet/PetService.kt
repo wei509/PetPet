@@ -78,8 +78,9 @@ class PetService : Service() {
     // ★ 按住多久算"摸头"（毫秒）
     private val holdMs = 600L
 
-    // ★ 双击间隔（毫秒），小于这个时间算双击
-    private val doubleMs = 320L
+    // ★ 双击判定时间（毫秒）
+    //   单击会等这么久，看有没有第二下；有就是双击，没有才播单击
+    private val doubleMs = 280L
 
     // ★ 音效音量（0.0 ~ 1.0）
     private val sndVolume = 0.35f
@@ -121,6 +122,7 @@ class PetService : Service() {
     private var lastTapAt = 0L
     private var lastTapX = 0f
     private var lastTapY = 0f
+    private var pendingTap: Runnable? = null
 
     private val holdTask = Runnable {
         if (pressed && !moved) {
@@ -350,6 +352,11 @@ class PetService : Service() {
                 if (a != null) {
                     a.cancel()
                 }
+                val pt = pendingTap
+                if (pt != null) {
+                    handler.removeCallbacks(pt)
+                    pendingTap = null
+                }
                 downX = e.rawX
                 downY = e.rawY
                 startX = p.x
@@ -391,12 +398,26 @@ class PetService : Service() {
                 val nearY = abs(e.rawY - lastTapY) < dp(60)
                 if (lastTapAt != 0L && gap < doubleMs && nearX && nearY) {
                     lastTapAt = 0L
+                    val pt = pendingTap
+                    if (pt != null) {
+                        handler.removeCallbacks(pt)
+                        pendingTap = null
+                    }
                     doEat()
                 } else {
                     lastTapAt = now
                     lastTapX = e.rawX
                     lastTapY = e.rawY
-                    doClick()
+                    val pt = pendingTap
+                    if (pt != null) {
+                        handler.removeCallbacks(pt)
+                    }
+                    val t = Runnable {
+                        pendingTap = null
+                        doClick()
+                    }
+                    pendingTap = t
+                    handler.postDelayed(t, doubleMs)
                 }
                 return true
             }
